@@ -48,6 +48,7 @@ policy:
   dense_feature_dim: 256
   max_memory_len: 1024
   use_state_memory_tokens: true
+  use_task_uid_in_state_tokens: true
   num_state_tokens: 1
   num_tasks: ${task.policy.num_tasks}
   dense_crop_shape: [76, 76]

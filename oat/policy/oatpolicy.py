@@ -32,6 +32,7 @@ class OATPolicy(BasePolicy):
         dense_feature_dim: Optional[int] = None,
         max_memory_len: int = 1024,
         use_state_memory_tokens: bool = True,
+        use_task_uid_in_state_tokens: bool = True,
         num_state_tokens: int = 1,
         num_tasks: int = 10,
         rgb_camera_keys: Optional[List[str]] = None,
@@ -70,6 +71,7 @@ class OATPolicy(BasePolicy):
         self.d_model = d_model
         self.max_memory_len = max_memory_len
         self.use_state_memory_tokens = use_state_memory_tokens
+        self.use_task_uid_in_state_tokens = use_task_uid_in_state_tokens
         self.num_state_tokens = num_state_tokens
 
         if rgb_camera_keys is None:
@@ -127,7 +129,11 @@ class OATPolicy(BasePolicy):
             )
             self._state_encoder = obs_encoder.state_encoder if use_state_memory_tokens else None
             state_dim = self._state_encoder.output_feature_dim() if self._state_encoder else 0
-            has_task_uid = use_state_memory_tokens and ("task_uid" in shape_meta["obs"])
+            has_task_uid = (
+                use_state_memory_tokens
+                and use_task_uid_in_state_tokens
+                and ("task_uid" in shape_meta["obs"])
+            )
             from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
 
             self.dense_rgb_encoder = DenseRgbEncoder(
