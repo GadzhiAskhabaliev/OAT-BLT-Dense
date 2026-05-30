@@ -213,7 +213,7 @@ class DenseRgbEncoder(BaseObservationEncoder):
             if crop_shape is not None:
                 shape = (shape[0], crop_shape[0], crop_shape[1])
             return rmbn.ResNet18Conv(
-                input_channels=shape[0],
+                input_channel=shape[0],
                 input_coord_conv=False,
             )
 
@@ -278,7 +278,9 @@ class DenseRgbEncoder(BaseObservationEncoder):
             if crop_shape is not None:
                 h, w = crop_shape
             dummy = torch.zeros(1, c, h, w)
-            feat = self._encode_spatial_map(self.rgb_keys[0], dummy)
+            # Probe net directly (without randomizer) to avoid crop assertions
+            # when dummy size equals crop size.
+            feat = self.encoder.obs_nets[self.rgb_keys[0]](dummy)
             backbone_c = feat.shape[1]
 
         self.proj = nn.Conv2d(backbone_c, d_model, kernel_size=1)
@@ -287,10 +289,10 @@ class DenseRgbEncoder(BaseObservationEncoder):
 
     def _encode_spatial_map(self, key: str, images: torch.Tensor) -> torch.Tensor:
         """images: [N, C, H, W] -> [N, C', h, w]"""
-        obs = {key: images}
-        net = self.encoder.nets[key]
-        if self.encoder.randomizers[key] is not None:
-            images = self.encoder.randomizers[key].forward_in(images)
+        net = self.encoder.obs_nets[key]
+        randomizer = self.encoder.obs_randomizers[key]
+        if randomizer is not None:
+            images = randomizer.forward_in(images)
         return net(images)
 
     def encode_key(self, obs_dict: Dict, key: str) -> torch.Tensor:

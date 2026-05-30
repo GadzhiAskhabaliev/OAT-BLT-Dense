@@ -292,6 +292,8 @@ class OATPolicy(BasePolicy):
                     uid = uid.unsqueeze(1).expand(-1, To)
                 elif uid.dim() == 2 and uid.shape[1] == 1 and To > 1:
                     uid = uid.expand(-1, To)
+                # Keep task ids in embedding range for multi-suite/global ids.
+                uid = torch.remainder(uid, self.task_uid_embed.num_embeddings)
                 task_e = self.task_uid_embed(uid)
                 state_in = torch.cat([state_feat, task_e], dim=-1)
             state_flat = self.state_to_memory(state_in)  # [B, To, K*d]
