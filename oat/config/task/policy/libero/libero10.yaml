@@ -1,6 +1,7 @@
 name: libero10
 
 task_name: libero10
+num_tasks: 10
 lazy_eval: true
 
 shape_meta: &shape_meta

@@ -28,6 +28,7 @@ class OATPolicy(BasePolicy):
         dropout: float = 0.1,
         # dense visual memory (cross-attn input)
         use_dense_visual_memory: bool = False,
+        use_cross_attn: Optional[bool] = None,
         dense_feature_dim: Optional[int] = None,
         max_memory_len: int = 1024,
         num_state_tokens: int = 1,
@@ -60,6 +61,9 @@ class OATPolicy(BasePolicy):
             param.requires_grad_(False)
         action_tokenizer.eval()
 
+        # Backward/plan compatibility: allow use_cross_attn alias
+        if use_cross_attn is not None:
+            use_dense_visual_memory = use_cross_attn
         self.use_dense_visual_memory = use_dense_visual_memory
         d_model = dense_feature_dim if dense_feature_dim is not None else embed_dim
         self.d_model = d_model
@@ -249,10 +253,11 @@ class OATPolicy(BasePolicy):
             memory: [B, N_total, d_model]
         """
         assert self.dense_rgb_encoder is not None
-        B = next(iter(obs_dict.values())).shape[0]
+        sample_key = self.rgb_camera_keys[0]
+        B = obs_dict[sample_key].shape[0]
         device = self.device
         d_model = self.d_model
-        To = self.n_obs_steps
+        To = obs_dict[sample_key].shape[1]
 
         memory_parts = []
         index_rows = []
@@ -280,9 +285,13 @@ class OATPolicy(BasePolicy):
             state_feat = self._state_encoder(obs_dict)  # [B, To, Ds]
             state_in = state_feat
             if self.task_uid_embed is not None and "task_uid" in obs_dict:
-                uid = obs_dict["task_uid"].long().squeeze(-1)
+                uid = obs_dict["task_uid"].long()
+                if uid.dim() == 3 and uid.shape[-1] == 1:
+                    uid = uid.squeeze(-1)
                 if uid.dim() == 1:
                     uid = uid.unsqueeze(1).expand(-1, To)
+                elif uid.dim() == 2 and uid.shape[1] == 1 and To > 1:
+                    uid = uid.expand(-1, To)
                 task_e = self.task_uid_embed(uid)
                 state_in = torch.cat([state_feat, task_e], dim=-1)
             state_flat = self.state_to_memory(state_in)  # [B, To, K*d]
