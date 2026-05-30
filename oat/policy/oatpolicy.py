@@ -1,11 +1,13 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from oat.policy.base_policy import BasePolicy
 from oat.tokenizer.oat.tokenizer import OATTok
 from oat.perception.base_obs_encoder import BaseObservationEncoder
-# from oat.model.autoregressive.transformer import AutoregressiveModel
+from oat.perception.fused_obs_encoder import FusedObservationEncoder
+from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
 from oat.model.autoregressive.transformer_cache import AutoregressiveModel
 
 
@@ -22,6 +24,15 @@ class OATPolicy(BasePolicy):
         n_layers: int = 8,
         n_heads: int = 8,
         dropout: float = 0.1,
+        # dense visual memory (cross-attn input)
+        use_dense_visual_memory: bool = False,
+        dense_feature_dim: Optional[int] = None,
+        max_memory_len: int = 1024,
+        num_state_tokens: int = 1,
+        num_tasks: int = 10,
+        rgb_camera_keys: Optional[List[str]] = None,
+        dense_crop_shape: Optional[Tuple[int, int]] = (76, 76),
+        share_dense_rgb_encoder: bool = True,
         # policy inference params
         temperature: float = 1.0,
         topk: int = 10,
@@ -47,6 +58,20 @@ class OATPolicy(BasePolicy):
             param.requires_grad_(False)
         action_tokenizer.eval()
 
+        self.use_dense_visual_memory = use_dense_visual_memory
+        d_model = dense_feature_dim if dense_feature_dim is not None else embed_dim
+        self.d_model = d_model
+        self.max_memory_len = max_memory_len
+        self.num_state_tokens = num_state_tokens
+
+        if rgb_camera_keys is None:
+            rgb_camera_keys = [
+                k for k, attr in shape_meta["obs"].items()
+                if attr.get("type") == "rgb"
+            ]
+        self.rgb_camera_keys = list(rgb_camera_keys)
+        assert len(self.rgb_camera_keys) >= 1, "dense/legacy policy needs rgb cameras"
+
         # create AR model
         codebook_size = action_tokenizer.quantizer.codebook_size
         latent_horizon = action_tokenizer.latent_horizon
@@ -54,7 +79,8 @@ class OATPolicy(BasePolicy):
             vocab_size=codebook_size + 1,  # +1 for <BOS>
             max_seq_len=latent_horizon + 1,
             max_cond_len=n_obs_steps,
-            cond_dim=obs_feature_dim,
+            max_memory_len=max_memory_len if use_dense_visual_memory else n_obs_steps,
+            cond_dim=embed_dim if use_dense_visual_memory else obs_feature_dim,
             n_layer=n_layers,
             n_head=n_heads,
             n_emb=embed_dim,
@@ -78,18 +104,55 @@ class OATPolicy(BasePolicy):
         self.temperature = temperature
         self.topk = topk
 
+        self.dense_rgb_encoder: Optional[DenseRgbEncoder] = None
+        self.time_embed: Optional[nn.Embedding] = None
+        self.camera_embed: Optional[nn.Embedding] = None
+        self.task_uid_embed: Optional[nn.Embedding] = None
+        self.state_to_memory: Optional[nn.Module] = None
+        self._state_encoder = None
+        self.memory_index_map: Optional[torch.Tensor] = None
+
+        if use_dense_visual_memory:
+            assert isinstance(obs_encoder, FusedObservationEncoder), (
+                "use_dense_visual_memory expects FusedObservationEncoder "
+                "(for state normalization / legacy fallback)."
+            )
+            self._state_encoder = obs_encoder.state_encoder
+            state_dim = self._state_encoder.output_feature_dim() if self._state_encoder else 0
+            has_task_uid = "task_uid" in shape_meta["obs"]
+            task_dim = d_model if has_task_uid else 0
+
+            self.dense_rgb_encoder = DenseRgbEncoder(
+                shape_meta=shape_meta,
+                d_model=d_model,
+                crop_shape=dense_crop_shape,
+                share_rgb_model=share_dense_rgb_encoder,
+                rgb_keys=self.rgb_camera_keys,
+            )
+            self.time_embed = nn.Embedding(n_obs_steps, d_model)
+            self.camera_embed = nn.Embedding(len(self.rgb_camera_keys), d_model)
+            if has_task_uid:
+                self.task_uid_embed = nn.Embedding(num_tasks, d_model)
+            in_state_dim = state_dim + (d_model if has_task_uid else 0)
+            self.state_to_memory = nn.Sequential(
+                nn.Linear(in_state_dim, d_model * num_state_tokens),
+                nn.Mish(),
+                nn.LayerNorm(d_model * num_state_tokens),
+            )
+
         # report
         num_obs_params = sum(p.numel() for p in obs_encoder.parameters())
         num_trainable_obs_params = sum(p.numel() for p in obs_encoder.parameters() if p.requires_grad)
-        obs_trainable_ratio = num_trainable_obs_params / num_obs_params
+        obs_trainable_ratio = num_trainable_obs_params / max(num_obs_params, 1)
         num_tok_params = sum(p.numel() for p in action_tokenizer.parameters())
         num_trainable_tok_params = sum(p.numel() for p in action_tokenizer.parameters() if p.requires_grad)
-        tok_trainable_ratio = num_trainable_tok_params / num_tok_params
+        tok_trainable_ratio = num_trainable_tok_params / max(num_tok_params, 1)
         num_model_params = sum(p.numel() for p in model.parameters())
         num_trainable_model_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        model_trainable_ratio = num_trainable_model_params / num_model_params
+        model_trainable_ratio = num_trainable_model_params / max(num_model_params, 1)
+        mem_mode = "dense_visual_memory" if use_dense_visual_memory else "pooled_obs"
         print(
-            f"{self.get_policy_name()} initialized with\n"
+            f"{self.get_policy_name()} initialized ({mem_mode}) with\n"
             f"  obs enc: {num_obs_params/1e6:.1f}M ({obs_trainable_ratio:.5%} trainable)\n"
             f"  act tok: {num_tok_params/1e6:.1f}M ({tok_trainable_ratio:.5%} trainable)\n"
             f"  policy : {num_model_params/1e6:.1f}M ({model_trainable_ratio:.5%} trainable)\n"
@@ -106,6 +169,8 @@ class OATPolicy(BasePolicy):
     
     def get_policy_name(self):
         base_name = 'oatpolicy_'
+        if self.use_dense_visual_memory:
+            base_name += 'dense|'
         for modality in self.modalities:
             if modality != 'state':
                 base_name += modality + '|'
@@ -124,7 +189,8 @@ class OATPolicy(BasePolicy):
 
     def set_normalizer(self, normalizer):
         self.obs_encoder.set_normalizer(normalizer)
-        # self.action_tokenizer.set_normalizer(normalizer)
+        if self.dense_rgb_encoder is not None:
+            self.dense_rgb_encoder.set_normalizer(normalizer)
 
     def get_optimizer(
         self, 
@@ -134,28 +200,26 @@ class OATPolicy(BasePolicy):
         betas: Tuple[float, float],
     ) -> torch.optim.Optimizer:
         """Create an AdamW optimizer with weight decay for 2D parameters only."""
-        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
-        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        encoder_modules = [self.obs_encoder]
+        if self.dense_rgb_encoder is not None:
+            encoder_modules.append(self.dense_rgb_encoder)
+        encoder_param_ids = set()
+        for enc in encoder_modules:
+            for p in enc.parameters():
+                encoder_param_ids.add(id(p))
 
         encoder_decay_params = []
         encoder_nodecay_params = []
-        for name, param in self.obs_encoder.named_parameters():
-            if not param.requires_grad:
-                continue
-            if param.dim() >= 2:
-                encoder_decay_params.append(param)
-            else:
-                encoder_nodecay_params.append(param)
-
         policy_decay_params = []
         policy_nodecay_params = []
-        for name, param in self.model.named_parameters():
+        for param in self.parameters():
             if not param.requires_grad:
                 continue
+            is_encoder = id(param) in encoder_param_ids
             if param.dim() >= 2:
-                policy_decay_params.append(param)
+                (encoder_decay_params if is_encoder else policy_decay_params).append(param)
             else:
-                policy_nodecay_params.append(param)
+                (encoder_nodecay_params if is_encoder else policy_nodecay_params).append(param)
         
         optim_groups = [
             {'params': policy_decay_params, 'lr': policy_lr, 'weight_decay': weight_decay},
@@ -166,6 +230,74 @@ class OATPolicy(BasePolicy):
 
         optimizer = torch.optim.AdamW(optim_groups, betas=betas)
         return optimizer
+
+    def _get_conditioning(
+        self,
+        obs_dict: Dict[str, torch.Tensor],
+    ) -> Tuple[torch.Tensor, bool]:
+        if self.use_dense_visual_memory:
+            return self.get_dense_memory(obs_dict), True
+        return self.obs_encoder(obs_dict), False
+
+    def get_dense_memory(self, obs_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """
+        Build dense visual + state memory for cross-attention.
+
+        Returns:
+            memory: [B, N_total, d_model]
+        """
+        assert self.dense_rgb_encoder is not None
+        B = next(iter(obs_dict.values())).shape[0]
+        device = self.device
+        d_model = self.d_model
+        To = self.n_obs_steps
+
+        memory_parts = []
+        index_rows = []
+
+        for cam_idx, cam_key in enumerate(self.rgb_camera_keys):
+            tokens = self.dense_rgb_encoder.encode_key(obs_dict, cam_key)  # [B*To, L, d]
+            L = tokens.shape[1]
+            tokens = tokens.view(B, To, L, d_model)
+            time_idx = torch.arange(To, device=device).view(1, To, 1).expand(B, To, L)
+            cam_idx_t = torch.full((B, To, L), cam_idx, device=device, dtype=torch.long)
+            tokens = tokens + self.time_embed(time_idx) + self.camera_embed(cam_idx_t)
+            tokens = tokens.reshape(B, To * L, d_model)
+            memory_parts.append(tokens)
+
+            hw = int(L ** 0.5)
+            for t in range(To):
+                for p in range(L):
+                    h_pos = p // hw
+                    w_pos = p % hw
+                    index_rows.append((cam_idx, t, h_pos, w_pos, 0))  # type 0 = visual
+
+        memory = torch.cat(memory_parts, dim=1)
+
+        if self._state_encoder is not None:
+            state_feat = self._state_encoder(obs_dict)  # [B, To, Ds]
+            state_in = state_feat
+            if self.task_uid_embed is not None and "task_uid" in obs_dict:
+                uid = obs_dict["task_uid"].long().squeeze(-1)
+                if uid.dim() == 1:
+                    uid = uid.unsqueeze(1).expand(-1, To)
+                task_e = self.task_uid_embed(uid)
+                state_in = torch.cat([state_feat, task_e], dim=-1)
+            state_flat = self.state_to_memory(state_in)  # [B, To, K*d]
+            state_tokens = state_flat.view(B, To * self.num_state_tokens, d_model)
+            memory = torch.cat([memory, state_tokens], dim=1)
+            for t in range(To):
+                for k in range(self.num_state_tokens):
+                    index_rows.append((-1, t, k, -1, 1))  # type 1 = state
+
+        N = memory.shape[1]
+        if N > self.max_memory_len:
+            raise ValueError(
+                f"memory length {N} exceeds max_memory_len={self.max_memory_len}"
+            )
+
+        self.memory_index_map = torch.tensor(index_rows, device=device, dtype=torch.long)
+        return memory
 
     def predict_action(self, 
         obs_dict: Dict[str, torch.Tensor],
@@ -182,30 +314,27 @@ class OATPolicy(BasePolicy):
         if topk is None:
             topk = self.topk
 
-        # encode observation
-        features = self.obs_encoder(obs_dict)   # [B, To, d]
-        B = features.shape[0]
+        cond, memory_is_embedded = self._get_conditioning(obs_dict)
+        B = cond.shape[0]
 
-        # autoregressive generation
-        action_tokens = torch.full( # [B, 1] seq: [<BOS>,]
+        action_tokens = torch.full(
             (B, 1), self.bos_id, 
             dtype=torch.long, device=self.device
         )
         action_tokens = self.model.generate(
             action_tokens,
-            cond=features,
+            cond=cond,
+            memory_is_embedded=memory_is_embedded,
             max_new_tokens=use_k_tokens,
             temperature=temperature,
             top_k=topk,
-        )[:, 1:]    # [B, max_seq_len], drop <BOS>
+        )[:, 1:]
 
-        # decode action tokens
         with torch.inference_mode():
             action_pred = self.action_tokenizer.detokenize(
                 tokens=action_tokens,
             )
 
-        # receeding horizon
         action = action_pred[:,:self.n_action_steps]
 
         result = {
@@ -216,17 +345,14 @@ class OATPolicy(BasePolicy):
 
 
     def forward(self, batch) -> torch.Tensor:
-        # tokenize trajectory
         with torch.inference_mode():
             action_tokens = self.action_tokenizer.tokenize(batch['action'])
 
         B = batch['action'].shape[0]
         device = batch['action'].device
 
-        # encode observation
-        features = self.obs_encoder(batch['obs'])   # [B, To, d]
+        cond, memory_is_embedded = self._get_conditioning(batch['obs'])
 
-        # prepend <BOS> token
         action_tokens = torch.cat([
             torch.full(
                 (B, 1), self.bos_id, 
@@ -235,13 +361,15 @@ class OATPolicy(BasePolicy):
             action_tokens
         ], dim=1)
 
-        # forward model
-        logits = self.model(action_tokens[:, :-1], cond=features)
+        logits = self.model(
+            action_tokens[:, :-1],
+            cond=cond,
+            memory_is_embedded=memory_is_embedded,
+        )
 
-        # compute loss
         vocab_size = logits.size(-1)
         loss = F.cross_entropy(
-            logits.reshape(-1, vocab_size),     # (B*T, vocab_size)
-            action_tokens[:, 1:].reshape(-1)    # (B*T,)
+            logits.reshape(-1, vocab_size),
+            action_tokens[:, 1:].reshape(-1)
         )
         return loss

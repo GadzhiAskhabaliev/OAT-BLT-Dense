@@ -41,6 +41,14 @@ policy:
   n_layers: 4
   n_heads: 4
   dropout: 0.1
+  # dense visual memory (cross-attn input); false = legacy pooled obs vectors
+  use_dense_visual_memory: false
+  dense_feature_dim: 256
+  max_memory_len: 1024
+  num_state_tokens: 1
+  num_tasks: 10
+  dense_crop_shape: [76, 76]
+  share_dense_rgb_encoder: true
   # policy inference params
   temperature: 1.0
   topk: 10

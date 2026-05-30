@@ -159,6 +159,7 @@ class AutoregressiveModel(ModuleAttrMixin):
         max_seq_len: int,
         max_cond_len: int,
         cond_dim: int = 0,
+        max_memory_len: Optional[int] = None,
         n_layer: int = 12,
         n_head: int = 12,
         n_emb: int = 768,
@@ -169,12 +170,17 @@ class AutoregressiveModel(ModuleAttrMixin):
         self.n_layer = n_layer
         self.n_head = n_head
         self.n_emb = n_emb
+        self.max_cond_len = max_cond_len
+        self.max_memory_len = max_memory_len if max_memory_len is not None else max_cond_len
         
         # Input embedding stem
         self.tok_emb = nn.Embedding(vocab_size, n_emb)
         self.tok_pos_emb = nn.Parameter(torch.zeros(1, max_seq_len, n_emb))
         self.cond_emb = nn.Linear(cond_dim, n_emb)
+        # Legacy pooled obs: short cond sequence (e.g. To steps)
         self.cond_pos_emb = nn.Parameter(torch.zeros(1, max_cond_len, n_emb))
+        # Dense visual memory: long patch sequence (cross-attn keys/values)
+        self.memory_pos_emb = nn.Parameter(torch.zeros(1, self.max_memory_len, n_emb))
         self.drop = nn.Dropout(p_drop_emb)
 
         self.encoder = nn.Sequential(
@@ -211,29 +217,60 @@ class AutoregressiveModel(ModuleAttrMixin):
             elif isinstance(m, RMSNorm):
                 nn.init.constant_(m.weight, 1.0)
 
+    def _encode_memory(
+        self,
+        cond: torch.Tensor,
+        memory_is_embedded: bool = False,
+    ) -> torch.Tensor:
+        """
+        Build cross-attention memory from condition tokens.
+
+        memory_is_embedded=False (legacy): cond is [B, T, cond_dim], project with cond_emb.
+        memory_is_embedded=True (dense): cond is [B, T, n_emb], add memory_pos_emb only.
+        """
+        T_cond = cond.shape[1]
+        if memory_is_embedded:
+            if cond.shape[-1] != self.n_emb:
+                raise ValueError(
+                    f"dense memory expects cond dim {self.n_emb}, got {cond.shape[-1]}"
+                )
+            if T_cond > self.max_memory_len:
+                raise ValueError(
+                    f"memory length {T_cond} exceeds max_memory_len={self.max_memory_len}"
+                )
+            pos_emb = self.memory_pos_emb[:, :T_cond, :]
+            memory = self.drop(cond + pos_emb)
+        else:
+            if T_cond > self.max_cond_len:
+                raise ValueError(
+                    f"cond length {T_cond} exceeds max_cond_len={self.max_cond_len}"
+                )
+            cond_emb = self.cond_emb(cond)
+            pos_emb = self.cond_pos_emb[:, :T_cond, :]
+            memory = self.drop(cond_emb + pos_emb)
+        memory = self.encoder(memory)
+        return memory
+
     def forward(self, 
         tokens: torch.LongTensor, 
         cond: torch.Tensor,
+        memory_is_embedded: bool = False,
     ) -> torch.Tensor:
         """
         Forward pass for training. No KV cache is used here.
         tokens: (B, T_tok)
-        cond: (B, T_cond, cond_dim) or (B, T_cond, emb_dim) if already encoded
+        cond: (B, T_cond, cond_dim) pooled obs, or (B, T_mem, n_emb) dense memory
+        memory_is_embedded: if True, cond is already in n_emb (dense visual memory path)
         output: (B, T_tok, vocab_size)
         """
         T_tok = tokens.shape[1]
-        T_cond = cond.shape[1]
         
         # Token processing
         tok_emb = self.tok_emb(tokens)
         pos_emb = self.tok_pos_emb[:, :T_tok, :]
         x = self.drop(tok_emb + pos_emb)
 
-        # Condition processing
-        cond_emb = self.cond_emb(cond)
-        cond_pos_emb = self.cond_pos_emb[:, :T_cond, :]
-        memory = self.drop(cond_emb + cond_pos_emb)
-        memory = self.encoder(memory)
+        memory = self._encode_memory(cond, memory_is_embedded=memory_is_embedded)
 
         # decoding
         for block in self.blocks:
@@ -248,6 +285,7 @@ class AutoregressiveModel(ModuleAttrMixin):
         prefix: torch.LongTensor, 
         cond: torch.Tensor, 
         max_new_tokens: int,
+        memory_is_embedded: bool = False,
         temperature: float = 1.0,
         top_k: Optional[int] = None,
         eos_id: Optional[int] = None,
@@ -255,7 +293,8 @@ class AutoregressiveModel(ModuleAttrMixin):
         """
         Generate tokens autoregressively with KV Caching.
         prefix: (B, T_pre)
-        cond: (B, T_cond, cond_dim)
+        cond: (B, T_cond, cond_dim) or (B, T_mem, n_emb) when memory_is_embedded=True
+        memory_is_embedded: dense visual memory already in n_emb
         max_new_tokens: int, max number of new tokens to generate
         temperature: float, sampling temperature
         top_k: Optional[int], if specified, use top-k sampling
@@ -263,12 +302,8 @@ class AutoregressiveModel(ModuleAttrMixin):
             all subsequent tokens will be set to eos_id
         output: (B, T_pre + max_new_tokens)
         """        
-        # --- Pre-computation for condition ---
-        T_cond = cond.shape[1]
-        cond_emb = self.cond_emb(cond)
-        cond_pos_emb = self.cond_pos_emb[:, :T_cond, :]
-        memory = self.drop(cond_emb + cond_pos_emb)
-        memory = self.encoder(memory)
+        # --- Pre-computation for condition (static cross-attn K/V) ---
+        memory = self._encode_memory(cond, memory_is_embedded=memory_is_embedded)
         B_mem, T_mem = memory.shape[:2]
         
         # Pre-compute KV for cross-attention, as it's static
