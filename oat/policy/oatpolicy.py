@@ -31,6 +31,7 @@ class OATPolicy(BasePolicy):
         use_cross_attn: Optional[bool] = None,
         dense_feature_dim: Optional[int] = None,
         max_memory_len: int = 1024,
+        use_state_memory_tokens: bool = True,
         num_state_tokens: int = 1,
         num_tasks: int = 10,
         rgb_camera_keys: Optional[List[str]] = None,
@@ -68,6 +69,7 @@ class OATPolicy(BasePolicy):
         d_model = dense_feature_dim if dense_feature_dim is not None else embed_dim
         self.d_model = d_model
         self.max_memory_len = max_memory_len
+        self.use_state_memory_tokens = use_state_memory_tokens
         self.num_state_tokens = num_state_tokens
 
         if rgb_camera_keys is None:
@@ -123,9 +125,9 @@ class OATPolicy(BasePolicy):
                 "use_dense_visual_memory expects FusedObservationEncoder "
                 "(for state normalization / legacy fallback)."
             )
-            self._state_encoder = obs_encoder.state_encoder
+            self._state_encoder = obs_encoder.state_encoder if use_state_memory_tokens else None
             state_dim = self._state_encoder.output_feature_dim() if self._state_encoder else 0
-            has_task_uid = "task_uid" in shape_meta["obs"]
+            has_task_uid = use_state_memory_tokens and ("task_uid" in shape_meta["obs"])
             from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
 
             self.dense_rgb_encoder = DenseRgbEncoder(
@@ -139,12 +141,13 @@ class OATPolicy(BasePolicy):
             self.camera_embed = nn.Embedding(len(self.rgb_camera_keys), d_model)
             if has_task_uid:
                 self.task_uid_embed = nn.Embedding(num_tasks, d_model)
-            in_state_dim = state_dim + (d_model if has_task_uid else 0)
-            self.state_to_memory = nn.Sequential(
-                nn.Linear(in_state_dim, d_model * num_state_tokens),
-                nn.Mish(),
-                nn.LayerNorm(d_model * num_state_tokens),
-            )
+            if use_state_memory_tokens and self._state_encoder is not None:
+                in_state_dim = state_dim + (d_model if has_task_uid else 0)
+                self.state_to_memory = nn.Sequential(
+                    nn.Linear(in_state_dim, d_model * num_state_tokens),
+                    nn.Mish(),
+                    nn.LayerNorm(d_model * num_state_tokens),
+                )
 
         # report
         num_obs_params = sum(p.numel() for p in obs_encoder.parameters())
