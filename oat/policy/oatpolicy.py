@@ -1,14 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from oat.policy.base_policy import BasePolicy
 from oat.tokenizer.oat.tokenizer import OATTok
 from oat.perception.base_obs_encoder import BaseObservationEncoder
 from oat.perception.fused_obs_encoder import FusedObservationEncoder
-from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
 from oat.model.autoregressive.transformer_cache import AutoregressiveModel
+
+if TYPE_CHECKING:
+    from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
 
 
 class OATPolicy(BasePolicy):
@@ -104,7 +106,7 @@ class OATPolicy(BasePolicy):
         self.temperature = temperature
         self.topk = topk
 
-        self.dense_rgb_encoder: Optional[DenseRgbEncoder] = None
+        self.dense_rgb_encoder: Optional["DenseRgbEncoder"] = None
         self.time_embed: Optional[nn.Embedding] = None
         self.camera_embed: Optional[nn.Embedding] = None
         self.task_uid_embed: Optional[nn.Embedding] = None
@@ -120,7 +122,7 @@ class OATPolicy(BasePolicy):
             self._state_encoder = obs_encoder.state_encoder
             state_dim = self._state_encoder.output_feature_dim() if self._state_encoder else 0
             has_task_uid = "task_uid" in shape_meta["obs"]
-            task_dim = d_model if has_task_uid else 0
+            from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
 
             self.dense_rgb_encoder = DenseRgbEncoder(
                 shape_meta=shape_meta,

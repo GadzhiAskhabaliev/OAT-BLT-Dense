@@ -4,7 +4,6 @@ import torch.nn as nn
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.models.base_nets as rmbn
 import robomimic.models.obs_nets as rmon
-from typing import Dict, Tuple, Union
 
 from oat.common.pytorch_util import replace_submodules
 from oat.perception.base_obs_encoder import BaseObservationEncoder

@@ -79,7 +79,19 @@ class BaseWorkspace:
 
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
-                self.__dict__[key].load_state_dict(value, **kwargs)
+                load_result = self.__dict__[key].load_state_dict(value, **kwargs)
+                if (
+                    isinstance(load_result, tuple)
+                    and len(load_result) == 2
+                    and ('strict' in kwargs)
+                    and (kwargs.get('strict') is False)
+                ):
+                    missing_keys, unexpected_keys = load_result
+                    if missing_keys or unexpected_keys:
+                        print(
+                            f"[load_payload] {key}: "
+                            f"missing={len(missing_keys)} unexpected={len(unexpected_keys)}"
+                        )
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
@@ -95,7 +107,8 @@ class BaseWorkspace:
         payload = torch.load(path.open('rb'), pickle_module=dill, **kwargs)
         self.load_payload(payload, 
             exclude_keys=exclude_keys, 
-            include_keys=include_keys)
+            include_keys=include_keys,
+            **kwargs)
         return payload
     
     @classmethod

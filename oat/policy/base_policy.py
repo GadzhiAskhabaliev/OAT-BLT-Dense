@@ -14,12 +14,13 @@ class BasePolicy(ModuleAttrMixin):
         checkpoint: str,
         output_dir: Optional[str] = None,
         return_configuration: bool = False,
+        strict: bool = True,
     ):
         payload = torch.load(open(checkpoint, 'rb'), pickle_module=dill)
         cfg = payload['cfg']
         cls = hydra.utils.get_class(cfg._target_)
         workspace = cls(cfg, output_dir=output_dir, lazy_instantiation=False)
-        workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+        workspace.load_payload(payload, exclude_keys=None, include_keys=None, strict=strict)
         policy = workspace.model
         if getattr(cfg.training, 'use_ema', False):
             policy = workspace.ema_model
