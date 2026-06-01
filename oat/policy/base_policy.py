@@ -20,7 +20,13 @@ class BasePolicy(ModuleAttrMixin):
         cfg = payload['cfg']
         cls = hydra.utils.get_class(cfg._target_)
         workspace = cls(cfg, output_dir=output_dir, lazy_instantiation=False)
-        workspace.load_payload(payload, exclude_keys=None, include_keys=None, strict=strict)
+        # Optimizer state is not needed for inference and may not accept strict=.
+        workspace.load_payload(
+            payload,
+            exclude_keys=("optimizer",),
+            include_keys=None,
+            strict=strict,
+        )
         policy = workspace.model
         if getattr(cfg.training, 'use_ema', False):
             policy = workspace.ema_model
