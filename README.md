@@ -111,6 +111,20 @@ Artifacts: [`docs/results/phase_b_confirm/`](docs/results/phase_b_confirm/) · [
 
 Best checkpoint on cluster: `ep-0950_sr-0.527.ckpt`. In-loop SR is noisier than Phase B (30 vs 50 ep/task, 1 vs 3 seeds); treat Phase B as the calibrated reference.
 
+**Best checkpoint dashboards** (same style as ep-0700 ladder):
+
+| | |
+|---|---|
+| Sim eval (30 ep/task) | [dashboard](docs/results/ladder_950/sim_eval_dashboard.png) · [eval_log](docs/results/ladder_950/eval_log.json) |
+| Training metrics @ ep 950 | [dashboard](docs/results/ladder_950/training_metrics_dashboard.png) |
+
+<p align="center">
+  <img src="docs/results/ladder_950/sim_eval_dashboard.png" width="48%" alt="LIBERO-10 in-loop sim eval ep-0950" />
+  <img src="docs/results/ladder_950/training_metrics_dashboard.png" width="48%" alt="Training metrics ep-0950" />
+</p>
+
+Regenerate: `python scripts/make_checkpoint_dashboards.py --run-dir output/long/oat_dense_with_uid_long_0530_220204 --epoch 950 --tag ep-0950_sr-0.527 --out docs/results/ladder_950`
+
 ---
 
 ## Hugging Face checkpoints

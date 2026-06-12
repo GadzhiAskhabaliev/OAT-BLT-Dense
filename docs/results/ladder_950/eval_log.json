@@ -1,0 +1,22 @@
+{
+  "KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it/mean_success_rate_mean": 0.8333333333333334,
+  "KITCHEN_SCENE4_put_the_black_bowl_in_the_bottom_drawer_of_the_cabinet_and_close_it/mean_success_rate_mean": 0.8666666666666667,
+  "KITCHEN_SCENE6_put_the_yellow_and_white_mug_in_the_microwave_and_close_it/mean_success_rate_mean": 0.8666666666666667,
+  "KITCHEN_SCENE8_put_both_moka_pots_on_the_stove/mean_success_rate_mean": 0.5333333333333333,
+  "LIVING_ROOM_SCENE1_put_both_the_alphabet_soup_and_the_cream_cheese_box_in_the_basket/mean_success_rate_mean": 0.0,
+  "LIVING_ROOM_SCENE2_put_both_the_alphabet_soup_and_the_tomato_sauce_in_the_basket/mean_success_rate_mean": 0.03333333333333333,
+  "LIVING_ROOM_SCENE2_put_both_the_cream_cheese_box_and_the_butter_in_the_basket/mean_success_rate_mean": 0.7333333333333333,
+  "LIVING_ROOM_SCENE5_put_the_white_mug_on_the_left_plate_and_put_the_yellow_and_white_mug_on_the_right_plate/mean_success_rate_mean": 0.5333333333333333,
+  "LIVING_ROOM_SCENE6_put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding_to_the_right_of_the_plate/mean_success_rate_mean": 0.2,
+  "STUDY_SCENE1_pick_up_the_book_and_place_it_in_the_back_compartment_of_the_caddy/mean_success_rate_mean": 0.6666666666666666,
+  "checkpoint": "/workspace/OAT-RoboMimic-Fine-tune/BLT-OAT/output/long/oat_dense_with_uid_long_0530_220204/checkpoints/ep-0950_sr-0.527.ckpt",
+  "episodes_per_task_approx": 30.0,
+  "mean_success_rate_mean": 0.5266666666666666,
+  "n_test": 300,
+  "n_test_per_task": 30,
+  "num_exp": 1,
+  "num_tasks": 10,
+  "seed_stride": 300,
+  "task_suite": "libero10",
+  "test_start_seed": 1000
+}

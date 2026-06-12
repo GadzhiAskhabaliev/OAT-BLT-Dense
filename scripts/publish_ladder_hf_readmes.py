@@ -80,18 +80,27 @@ def train_epoch_curve(rows: List[Dict[str, Any]]) -> Tuple[List[float], List[flo
     return [float(x) for x in xs], [by_ep[x] for x in xs]
 
 
+def sr_series(rows: List[Dict[str, Any]]) -> Tuple[List[float], List[float]]:
+    xs, ys = [], []
+    for r in rows:
+        if "mean_success_rate" in r and "epoch" in r:
+            xs.append(float(int(r["epoch"])))
+            ys.append(100.0 * float(r["mean_success_rate"]))
+    return xs, ys
+
+
 def snapshot_metrics(
     rows: List[Dict[str, Any]], target_epoch: int
 ) -> Dict[str, Any]:
-    meta_path_guess = None
     for r in reversed(rows):
-        if int(r.get("epoch", -1)) == target_epoch and "val_loss" in r:
-            return {
-                "epoch": target_epoch,
-                "train_loss": r.get("train_loss"),
-                "val_loss": r.get("val_loss"),
-                "test_reconst_mse": r.get("test_reconst_mse"),
-            }
+        if int(r.get("epoch", -1)) != target_epoch:
+            continue
+        snap: Dict[str, Any] = {"epoch": target_epoch}
+        for key in ("train_loss", "val_loss", "test_reconst_mse", "mean_success_rate"):
+            if key in r:
+                snap[key] = r[key]
+        if len(snap) > 1:
+            return snap
     return {"epoch": target_epoch}
 
 
@@ -128,6 +137,7 @@ def make_dashboard(
 
     val = val_series(rows)
     tr_x, tr_y = train_epoch_curve(rows)
+    sr_x, sr_y = sr_series(rows)
 
     plt.style.use("dark_background")
     fig = plt.figure(figsize=(14, 8), facecolor=BG)
@@ -171,6 +181,23 @@ def make_dashboard(
         ax_main2.set_ylabel("test_reconst_mse", color=TEAL, fontsize=10)
         ax_main2.tick_params(axis="y", colors=TEAL)
         ax_main2.spines["right"].set_color(GRID)
+        if sr_x:
+            ax_sr = ax_main.twinx()
+            if ax_main2 is not ax_sr:
+                ax_sr.spines["right"].set_position(("axes", 1.08))
+            ax_sr.plot(
+                sr_x,
+                sr_y,
+                color=GOLD,
+                lw=0,
+                marker="D",
+                ms=5,
+                alpha=0.95,
+                label="In-loop SR (%)",
+            )
+            ax_sr.set_ylabel("Success rate (%)", color=GOLD, fontsize=10)
+            ax_sr.tick_params(axis="y", colors=GOLD)
+            ax_sr.spines["right"].set_color(GOLD)
 
     ax_main.axvline(target_epoch, color=GOLD, ls="--", lw=2.0, alpha=0.95, label=f"Checkpoint ep {target_epoch}")
     ax_main.set_xlabel("Epoch", fontsize=11)
@@ -195,7 +222,9 @@ def make_dashboard(
     ) + (
         f"reconst_mse = {rl:.5f}\n" if rl is not None else ""
     ) + (
-        "SR: run sim eval (not in train logs;\nlazy_eval was enabled)"
+        f"in-loop SR = {100.0 * float(snap['mean_success_rate']):.2f}%\n"
+        if snap.get("mean_success_rate") is not None
+        else "SR: run sim eval (not in train logs;\nlazy_eval was enabled)"
     )
     ax_main.text(
         0.015,
