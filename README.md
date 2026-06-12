@@ -11,6 +11,15 @@ Fork of the official OAT codebase extended with spatial patch memory, cross-atte
 | **Selection metric** | `mean_success_rate` (sim rollout), not `val_loss` |
 | **Paper reference** | OAT-8 on LIBERO-10: **56.3% ± ~1.0** ([Liu et al., 2026](https://arxiv.org/abs/2602.04215)) |
 
+### Branches
+
+| Branch | Contents |
+|--------|----------|
+| **`BLT-OAT-dense`** (default) | Dense visual memory, training ladder, confirm eval, HF dashboards |
+| **`Blockwise-OAT`** | Parallel tail decoder (AR prefix + blockwise inference) |
+
+Cluster scripts and eval do **not** depend on branch names — they use the checked-out tree under `BLT-OAT/` on the host.
+
 ---
 
 ## Motivation
