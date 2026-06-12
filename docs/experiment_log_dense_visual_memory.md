@@ -3,7 +3,7 @@
 Живой журнал эксперимента для научрука / статьи (ablation section).  
 Репозиторий: `BLT-OAT` (fork OAT). Бенчмарк: **LIBERO-10**, `N500` demos.
 
-**Последнее обновление:** 2026-05-30 (UTC+3)
+**Последнее обновление:** 2026-06-12 (UTC+3)
 
 ---
 
@@ -86,15 +86,17 @@ Run dirs (cluster): `output/smoke/ab_legacy_1k_r2`, `ab_dense_visual_only_1k`, `
 
 ---
 
-## 6. Long-run (текущий)
+## 6. Long-run (основной)
 
-**Активный run (dense + task_uid):** `oat_dense_with_uid_long_0530_220204`
+**Run (dense + task_uid):** `oat_dense_with_uid_long_0530_220204`
 
 | Поле | Значение |
 |------|----------|
-| Сессия tmux | `oat_dense_with_uid_long_0530_220204` |
-| Train | stopped @ ~ep 804 for SR ladder eval |
-| Checkpoints local | `ep-0300`, `ep-0500`, `ep-0700`, `latest.ckpt` |
+| Train | ep 0→700 (ladder), resume ep 700→1000 |
+| HF checkpoints | [300](https://huggingface.co/hackhackhack66666/OAT-BLT-LIBERO-300), [500](https://huggingface.co/hackhackhack66666/OAT-BLT-LIBERO-500), [700](https://huggingface.co/hackhackhack66666/OAT-BLT-Libero-700) |
+| Лучший in-loop SR (resume) | **52.67%** @ ep-950 (`ep-0950_sr-0.527.ckpt`) |
+| Phase B confirm (ep-0700) | **47.60% ± 1.75%** (50 ep/task, 3 seeds) |
+| Артефакты в репо | [`docs/results/`](../results/) |
 
 | Поле (старый run без uid) | Значение |
 |------|----------|
@@ -230,6 +232,11 @@ for k in ['mean_success_rate','val_loss','train_loss']:
 ---
 
 ## 10. Changelog
+
+### 2026-06-12 — Документация и зеркала артефактов
+- README: полный research timeline, HF-ссылки, визуализации из `docs/results/`.
+- Resume train/eval: cluster-скрипты (`run_resume_train_sim_eval.sh`, lazy LiberoRunner, `mp_context=spawn`).
+- Phase B confirm: 47.60% ± 1.75%; resume in-loop best 52.67% @ ep-950.
 
 ### 2026-05-31 — HF checkpoint upload watcher (epochs 300 & 500, train continues)
 - Script: `scripts/watch_hf_checkpoint_upload.py`

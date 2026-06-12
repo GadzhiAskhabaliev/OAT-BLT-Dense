@@ -110,13 +110,24 @@ class TrainPolicyWorkspace(BaseWorkspace):
                 **cfg.checkpoint.topk
             )
 
-        # configure env
+        # LiberoRunner: lazy init on rollout epochs only (saves RAM when lazy_eval=false).
         lazy_eval = cfg.task.policy.lazy_eval  # don't eval during training
-        if (not lazy_eval) and accelerator.is_main_process:
-            env_runner: BaseRunner = hydra.utils.instantiate(
-                cfg.task.policy.env_runner,
-                output_dir=self.output_dir
-            )
+        env_runner: Union[BaseRunner, None] = None
+
+        def get_env_runner() -> BaseRunner:
+            nonlocal env_runner
+            if env_runner is None:
+                env_runner = hydra.utils.instantiate(
+                    cfg.task.policy.env_runner,
+                    output_dir=self.output_dir
+                )
+            return env_runner
+
+        def close_env_runner():
+            nonlocal env_runner
+            if env_runner is not None:
+                env_runner.close()
+                env_runner = None
 
         # resume training
         if cfg.training.resume:
@@ -269,8 +280,9 @@ class TrainPolicyWorkspace(BaseWorkspace):
                 if not lazy_eval:
                     accelerator.wait_for_everyone()
                     if accelerator.is_main_process and (self.epoch % cfg.training.rollout_every) == 0:
-                        runner_log = env_runner.run(policy)
+                        runner_log = get_env_runner().run(policy)
                         step_log.update(runner_log)
+                        close_env_runner()
                     accelerator.wait_for_everyone()
 
                 # run validation
@@ -395,8 +407,8 @@ class TrainPolicyWorkspace(BaseWorkspace):
         # clean up
         if not lazy_eval:
             accelerator.wait_for_everyone()
-            if accelerator.is_main_process and (not lazy_eval):
-                env_runner.close()
+            if accelerator.is_main_process:
+                close_env_runner()
             accelerator.wait_for_everyone()
         accelerator.end_training()
 

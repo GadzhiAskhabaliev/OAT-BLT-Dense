@@ -1,4 +1,7 @@
 data/
 output/
+.tmp_ladder_logs/
 *.DS_Store
 *__pycache__/
+*.ckpt
+.env

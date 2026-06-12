@@ -110,6 +110,8 @@ def build_runner_kwargs(
 @click.option('--temperature', default=None, type=float, help="temperature for policy inference")
 @click.option('--topk', default=None, type=int, help="topk for policy inference")
 @click.option('--use_k_tokens', default=None, type=int, help="number of tokens to use for policy inference")
+@click.option('--n-parallel-envs', default=None, type=int, help="LiberoRunner n_parallel_envs (default from ckpt cfg)")
+@click.option('--mp-context', default=None, type=str, help="multiprocessing context for AsyncVectorEnv (e.g. spawn)")
 @click.option(
     '--overwrite',
     is_flag=True,
@@ -128,6 +130,8 @@ def eval_policy_sim(
     temperature: Optional[float] = None,
     topk: Optional[int] = None,
     use_k_tokens: Optional[int] = None,
+    n_parallel_envs: Optional[int] = None,
+    mp_context: Optional[str] = None,
     overwrite: bool = False,
 ):
     if n_test is not None and n_test_per_task is not None:
@@ -196,6 +200,13 @@ def eval_policy_sim(
         all_runs: List[Dict[str, Any]] = []
         runner_log = None
 
+        runner_parallel_envs = (
+            int(n_parallel_envs)
+            if n_parallel_envs is not None
+            else int(cfg.task.policy.env_runner.get("n_parallel_envs", 4))
+        )
+        runner_mp_context = mp_context or cfg.task.policy.env_runner.get("mp_context", "spawn")
+
         for exp_idx in range(num_exp):
             exp_seed = base_seed + exp_idx * stride
             runner_kwargs = build_runner_kwargs(
@@ -205,6 +216,8 @@ def eval_policy_sim(
 
             env_runner: BaseRunner = hydra.utils.instantiate(
                 cfg.task.policy.env_runner,
+                n_parallel_envs=runner_parallel_envs,
+                mp_context=runner_mp_context,
                 **runner_kwargs,
             )
             this_log = env_runner.run(policy, **infer_kwargs)

@@ -53,6 +53,7 @@ class LiberoRunner(BaseRunner):
             'robot0_gripper_qpos',
         ],
         max_episode_steps: int = 550,
+        mp_context: Optional[str] = "spawn",
     ):
         super().__init__(output_dir)
 
@@ -173,9 +174,11 @@ class LiberoRunner(BaseRunner):
                 reward_agg_method='max'
             )
 
-        env = AsyncVectorEnv(env_fns, shared_memory=False,
-            dummy_env_fn=dummy_env_fn
-            # context='spawn',
+        env = AsyncVectorEnv(
+            env_fns,
+            shared_memory=False,
+            dummy_env_fn=dummy_env_fn,
+            context=mp_context,
         )  # NOTE: turn off shared_memory to use Text space
 
         # attr assignment

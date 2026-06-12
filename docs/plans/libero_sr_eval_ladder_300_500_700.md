@@ -1,7 +1,7 @@
-# SR Eval Plan: Dense Ladder (300 / 500 / 700)
+# Протокол SR-eval: лестница чекпоинтов (300 / 500 / 700)
 
 Run: `oat_dense_with_uid_long_0530_220204`  
-Goal: choose the best dense checkpoint by `mean_success_rate` (SR), then compare to OAT paper reference (**OAT8 LIBERO-10 = 56.3% ± ~1.0**).
+Цель: выбрать лучший dense-чекпоинт по `mean_success_rate`, затем confirm-eval и сравнение с OAT-8 (**56.3% ± ~1.0**, Liu et al., 2026).
 
 ## Decision Rule
 
@@ -176,9 +176,15 @@ If |SR_a − SR_b| &lt; **3 pp**:
 
 ## Resume After Eval
 
-If confirm: **SR(700) > SR(500)**:
+If confirm: **SR(700) > SR(500)** (Phase B mean **47.60%** vs screen 500 **38.0%**):
 
 ```bash
-cp checkpoints/ep-0700.ckpt checkpoints/latest.ckpt
-# resume train with training.resume=True; optional policy_lr x0.1, +200-300 epochs
+# On cluster host:
+bash scripts/cluster/launch_resume_train_sim_eval_tmux.sh
+
+# Or inside docker:
+CUDA_DEVICE=1 ROLLOUT_EVERY=50 TRAIN_N_TEST=300 \
+  bash scripts/cluster/run_resume_train_sim_eval.sh
 ```
+
+Defaults: `lazy_eval=false`, `rollout_every=50`, `n_test=300` (≈30 ep/task), resume from `ep-0700` on **GPU 1**, target epoch **1000**. Override `TRAIN_N_TEST=500` for Phase-B-scale SR each rollout.
