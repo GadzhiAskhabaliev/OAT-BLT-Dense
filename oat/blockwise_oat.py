@@ -189,27 +189,25 @@ class ParallelTailDecoder(nn.Module):
         refine_iters: int = 1,
     ) -> torch.Tensor:
         """Cross-entropy on all tail positions (teacher forcing on prefix)."""
-        logits = self.forward(
-            prefix_hidden, prefix_tokens, token_embedding, main_pos_emb,
-        )
-        loss = F.cross_entropy(
-            logits.reshape(-1, self.vocab_size),
-            target_tail_tokens.reshape(-1),
-        )
-        if refine_iters <= 1:
-            return loss
+        n_iters = max(1, int(refine_iters))
+        tail_ids = None
+        loss = 0.0
 
-        tail_ids = logits.argmax(dim=-1)
-        for _ in range(refine_iters - 1):
+        for it in range(n_iters):
             logits = self.forward(
-                prefix_hidden, prefix_tokens, token_embedding, main_pos_emb,
+                prefix_hidden,
+                prefix_tokens,
+                token_embedding,
+                main_pos_emb,
                 tail_token_ids=tail_ids,
             )
             loss = loss + F.cross_entropy(
                 logits.reshape(-1, self.vocab_size),
                 target_tail_tokens.reshape(-1),
             )
-        return loss / refine_iters
+            if it < n_iters - 1:
+                tail_ids = logits.argmax(dim=-1).detach()
+        return loss / n_iters
 
 
 @dataclass
@@ -243,6 +241,7 @@ def generate_with_blockwise_oat(
     p = cfg.prefix_len
     n_total = cfg.total_tokens
     n_tail = n_total - p
+    refine_iters = max(1, int(cfg.refine_iters))
     assert 1 <= p < n_total
 
     b = cond.shape[0]
@@ -263,7 +262,7 @@ def generate_with_blockwise_oat(
     prefix_tokens = out_with_bos[:, 1:1 + p]
     tail_ids = None
     t1 = time.perf_counter()
-    for _ in range(cfg.refine_iters):
+    for _ in range(refine_iters):
         logits = tail_decoder(
             prefix_hidden,
             prefix_tokens,
@@ -277,7 +276,15 @@ def generate_with_blockwise_oat(
             flat = logits.reshape(-1, logits.size(-1))
             sampled = _sample_logits(flat, cfg.temperature, cfg.top_k)
             tail_ids = sampled.view(b, n_tail)
+        if (tail_ids < 0).any() or (tail_ids >= tail_decoder.vocab_size).any():
+            raise ValueError(
+                f"Generated tail token index out of bounds: "
+                f"{tail_ids.min().item()}..{tail_ids.max().item()} vs vocab_size={tail_decoder.vocab_size}"
+            )
     t_tail = time.perf_counter() - t1
+
+    if tail_ids is None:
+        raise RuntimeError("Tail generation produced no tokens. Check refine_iters and tail decoder setup.")
 
     full_tokens = torch.cat([prefix_tokens, tail_ids], dim=1)
     info = {
@@ -288,6 +295,7 @@ def generate_with_blockwise_oat(
         "tail_seconds": t_tail,
         "prefix_len": p,
         "tail_len": n_tail,
+        "refine_iters_used": refine_iters,
     }
     return full_tokens, info
 

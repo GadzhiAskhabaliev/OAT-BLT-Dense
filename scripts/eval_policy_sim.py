@@ -110,6 +110,9 @@ def build_runner_kwargs(
 @click.option('--temperature', default=None, type=float, help="temperature for policy inference")
 @click.option('--topk', default=None, type=int, help="topk for policy inference")
 @click.option('--use_k_tokens', default=None, type=int, help="number of tokens to use for policy inference")
+@click.option('--use-blockwise', is_flag=True, default=False, help="use Blockwise-OAT inference path")
+@click.option('--blockwise-prefix-len', default=None, type=int, help="prefix length P for blockwise inference")
+@click.option('--blockwise-refine-iters', default=None, type=int, help="tail refinement iterations for blockwise inference")
 @click.option(
     '--overwrite',
     is_flag=True,
@@ -128,6 +131,9 @@ def eval_policy_sim(
     temperature: Optional[float] = None,
     topk: Optional[int] = None,
     use_k_tokens: Optional[int] = None,
+    use_blockwise: bool = False,
+    blockwise_prefix_len: Optional[int] = None,
+    blockwise_refine_iters: Optional[int] = None,
     overwrite: bool = False,
 ):
     if n_test is not None and n_test_per_task is not None:
@@ -192,6 +198,12 @@ def eval_policy_sim(
             infer_kwargs['topk'] = topk
         if use_k_tokens is not None:
             infer_kwargs['use_k_tokens'] = use_k_tokens
+        if use_blockwise:
+            infer_kwargs['use_blockwise'] = True
+        if blockwise_prefix_len is not None:
+            infer_kwargs['blockwise_prefix_len'] = int(blockwise_prefix_len)
+        if blockwise_refine_iters is not None:
+            infer_kwargs['blockwise_refine_iters'] = int(blockwise_refine_iters)
 
         all_runs: List[Dict[str, Any]] = []
         runner_log = None
@@ -238,6 +250,9 @@ def eval_policy_sim(
             'test_start_seed': base_seed,
             'seed_stride': stride,
             'task_suite': cfg.task.policy.env_runner.task_name,
+            'use_blockwise': bool(use_blockwise),
+            'blockwise_prefix_len': blockwise_prefix_len,
+            'blockwise_refine_iters': blockwise_refine_iters,
         }
 
         for key, value in mean_log.items():

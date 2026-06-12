@@ -70,6 +70,32 @@ Main OAT transformer is frozen; loss is CE on tail positions only.
 pytest tests/test_blockwise_oat.py -q
 ```
 
+## Verification workflow
+
+```bash
+# 1) Dataset integrity + prefix semantic checks (+ optional smoke subset)
+python scripts/verify_blockwise_dataset.py \
+  --policy-checkpoint path/to/policy.ckpt \
+  --prefix-len 4 \
+  --prefix-samples 300 \
+  --smoke-subset-dst data/libero/libero10_smoke.zarr \
+  --smoke-episodes 32
+
+# 2) Training-loop checks (micro-overfit, loss consistency, refine stability)
+python scripts/verify_blockwise_training.py \
+  --prefix-len 4 \
+  --n-tail 4 \
+  --refine-iters 2 \
+  --overfit-steps 120
+
+# 3) Policy integration + AR vs Blockwise speed benchmark
+python scripts/verify_blockwise_policy_integration.py \
+  --policy-checkpoint path/to/policy.ckpt \
+  --tail-checkpoint output/blockwise_tail_decoder.pt \
+  --prefix-len 4 \
+  --refine-iters 1
+```
+
 ## Alternatives
 
 | Approach | Pros | Cons |

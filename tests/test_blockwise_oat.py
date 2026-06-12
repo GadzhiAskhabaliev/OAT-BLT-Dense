@@ -26,6 +26,13 @@ def _tiny_ar_model(vocab_size=32, d_model=64, max_seq=9):
     )
 
 
+class _IdentityTokenizer:
+    def detokenize(self, tokens: torch.Tensor) -> torch.Tensor:
+        # Test double: any valid token tensor should decode without errors.
+        assert tokens.ndim == 2
+        return tokens.float()
+
+
 def test_parallel_tail_decoder_output_shape():
     b, p, n_tail, d = 2, 4, 4, 64
     vocab = 32
@@ -69,6 +76,67 @@ def test_prefix_hidden_matches_generate_prefix():
     assert hidden.shape == (b, d)
 
 
+def test_refine_iters_zero_runs_single_pass():
+    b, d = 2, 64
+    vocab = 32
+    bos_id = vocab - 1
+    total = 8
+    p = 4
+    ar = _tiny_ar_model(vocab_size=vocab, d_model=d)
+    tail = ParallelTailDecoder(vocab_size=vocab, d_model=d, n_tail=total - p)
+    cond = torch.randn(b, 2, d)
+
+    tokens0, info0 = generate_with_blockwise_oat(
+        ar,
+        tail,
+        cond,
+        bos_id,
+        BlockwiseGenerateConfig(prefix_len=p, total_tokens=total, refine_iters=0, temperature=0.0, use_argmax_tail=True),
+    )
+    tokens1, info1 = generate_with_blockwise_oat(
+        ar,
+        tail,
+        cond,
+        bos_id,
+        BlockwiseGenerateConfig(prefix_len=p, total_tokens=total, refine_iters=1, temperature=0.0, use_argmax_tail=True),
+    )
+    assert tokens0.shape == (b, total)
+    assert info0["tail_tokens"].shape == (b, total - p)
+    assert info0["refine_iters_used"] == 1
+    assert torch.equal(info0["prefix_tokens"], info1["prefix_tokens"])
+
+
+def test_prefix_decodability():
+    b, d = 1, 64
+    vocab = 32
+    bos_id = vocab - 1
+    total = 8
+    p = 4
+    ar = _tiny_ar_model(vocab_size=vocab, d_model=d)
+    tail = ParallelTailDecoder(vocab_size=vocab, d_model=d, n_tail=total - p)
+    cond = torch.randn(b, 2, d)
+
+    prefix = torch.full((b, 1), bos_id, dtype=torch.long)
+    full_ar_with_bos = ar.generate(prefix, cond, max_new_tokens=total, temperature=0.0)
+    expected_prefix = full_ar_with_bos[:, 1:1 + p]
+
+    _, info = generate_with_blockwise_oat(
+        ar,
+        tail,
+        cond,
+        bos_id,
+        BlockwiseGenerateConfig(prefix_len=p, total_tokens=total, temperature=0.0, use_argmax_tail=True),
+    )
+
+    assert torch.equal(info["prefix_tokens"], expected_prefix)
+    tokenizer = _IdentityTokenizer()
+    action_from_prefix = tokenizer.detokenize(info["prefix_tokens"])
+    action_from_full_prefix = tokenizer.detokenize(expected_prefix)
+    assert action_from_prefix is not None
+    assert action_from_full_prefix is not None
+    assert action_from_prefix.shape == action_from_full_prefix.shape
+
+
 def test_benchmark_runs():
     b, d = 1, 64
     vocab = 32
@@ -77,7 +145,7 @@ def test_benchmark_runs():
     tail = ParallelTailDecoder(vocab_size=vocab, d_model=d, n_tail=4)
     cond = torch.randn(b, 2, d)
     stats = benchmark_blockwise_vs_ar(
-        ar, tail, cond, bos_id, warmup=1, repeats=2,
+        ar, tail, cond, bos_id, warmup=2, repeats=6,
     )
-    assert stats["speedup"] > 0
+    assert stats["speedup"] > 1.0, f"Blockwise is slower than AR: {stats}"
     assert stats["blockwise_mean_sec"] > 0

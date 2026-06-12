@@ -427,6 +427,7 @@ class AutoregressiveModel(ModuleAttrMixin):
 
         x = self.ln_f(x[:, -1:, :])
         logits = self.head(x)
+        vocab_size = self.head.out_features
 
         out_tokens = prefix
         prefix_hidden = x.squeeze(1)
@@ -440,6 +441,11 @@ class AutoregressiveModel(ModuleAttrMixin):
                 next_token = torch.multinomial(probs, num_samples=1)
             else:
                 next_token = torch.argmax(logits.squeeze(1), dim=-1, keepdim=True)
+            if (next_token < 0).any() or (next_token >= vocab_size).any():
+                raise ValueError(
+                    f"Generated prefix token index out of bounds: "
+                    f"{next_token.min().item()}..{next_token.max().item()} vs vocab_size={vocab_size}"
+                )
 
             out_tokens = torch.cat((out_tokens, next_token), dim=1)
 

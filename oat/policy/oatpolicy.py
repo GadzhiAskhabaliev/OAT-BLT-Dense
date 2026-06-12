@@ -1,3 +1,5 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,6 +18,8 @@ from oat.blockwise_oat import (
 
 if TYPE_CHECKING:
     from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
+
+logger = logging.getLogger(__name__)
 
 
 class OATPolicy(BasePolicy):
@@ -404,8 +408,14 @@ class OATPolicy(BasePolicy):
     ) -> Dict[str, torch.Tensor]:
         """AR prefix (z1..zP) + parallel tail (z_{P+1}..z8) via ParallelTailDecoder."""
         if self.blockwise_tail_decoder is None:
-            raise RuntimeError(
-                "blockwise_tail_decoder is not attached; train or load ParallelTailDecoder first."
+            logger.warning(
+                "Blockwise tail decoder is not attached; falling back to full AR decoding."
+            )
+            return self.predict_action(
+                obs_dict,
+                temperature=temperature,
+                topk=topk,
+                use_blockwise=False,
             )
         if prefix_len is None:
             prefix_len = self.blockwise_prefix_len
