@@ -385,3 +385,79 @@ class AutoregressiveModel(ModuleAttrMixin):
             logits = self.head(x)
         
         return out_tokens
+
+    @torch.inference_mode()
+    def generate_prefix(
+        self,
+        prefix: torch.LongTensor,
+        cond: torch.Tensor,
+        n_prefix_tokens: int,
+        memory_is_embedded: bool = False,
+        temperature: float = 1.0,
+        top_k: Optional[int] = None,
+    ) -> Tuple[torch.LongTensor, torch.Tensor]:
+        """
+        Autoregressively generate exactly ``n_prefix_tokens`` after ``prefix`` (e.g. BOS).
+
+        Returns:
+            out_tokens: (B, T_pre + n_prefix_tokens) including the input prefix.
+            prefix_hidden: (B, n_emb) final decoder state after z_P (for tail decoder).
+        """
+        memory = self._encode_memory(cond, memory_is_embedded=memory_is_embedded)
+        b_mem, t_mem = memory.shape[:2]
+
+        memory_kv_cache = []
+        for block in self.blocks:
+            k_mem, v_mem = block.cross_attn.kv_proj(memory).split(self.n_emb, dim=2)
+            k_mem, v_mem = map(
+                lambda t: t.view(b_mem, t_mem, self.n_head, self.n_emb // self.n_head).transpose(1, 2),
+                (k_mem, v_mem),
+            )
+            memory_kv_cache.append((k_mem, v_mem))
+
+        t_pre = prefix.shape[1]
+        tok_emb = self.tok_emb(prefix)
+        pos_emb = self.tok_pos_emb[:, :t_pre, :]
+        x = self.drop(tok_emb + pos_emb)
+
+        past_key_values: List[Optional[Tuple[torch.Tensor, torch.Tensor]]] = [None] * self.n_layer
+        for i, block in enumerate(self.blocks):
+            x, present = block(x, memory, layer_past=None, memory_kv_cache=memory_kv_cache[i])
+            past_key_values[i] = present
+
+        x = self.ln_f(x[:, -1:, :])
+        logits = self.head(x)
+
+        out_tokens = prefix
+        prefix_hidden = x.squeeze(1)
+        for i in range(n_prefix_tokens):
+            if temperature > 0:
+                step_logits = logits.squeeze(1) / temperature
+                if top_k is not None:
+                    v, _ = torch.topk(step_logits, min(top_k, step_logits.size(-1)))
+                    step_logits = step_logits.masked_fill(step_logits < v[:, [-1]], -float("inf"))
+                probs = F.softmax(step_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = torch.argmax(logits.squeeze(1), dim=-1, keepdim=True)
+
+            out_tokens = torch.cat((out_tokens, next_token), dim=1)
+
+            tok_emb = self.tok_emb(next_token)
+            current_pos = t_pre + i
+            pos_emb = self.tok_pos_emb[:, current_pos:current_pos + 1, :]
+            x = self.drop(tok_emb + pos_emb)
+
+            for layer_idx, block in enumerate(self.blocks):
+                x, present = block(
+                    x, memory,
+                    layer_past=past_key_values[layer_idx],
+                    memory_kv_cache=memory_kv_cache[layer_idx],
+                )
+                past_key_values[layer_idx] = present
+
+            x = self.ln_f(x)
+            prefix_hidden = x.squeeze(1)
+            logits = self.head(x)
+
+        return out_tokens, prefix_hidden

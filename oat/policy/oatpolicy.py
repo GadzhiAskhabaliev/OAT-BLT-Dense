@@ -8,6 +8,11 @@ from oat.tokenizer.oat.tokenizer import OATTok
 from oat.perception.base_obs_encoder import BaseObservationEncoder
 from oat.perception.fused_obs_encoder import FusedObservationEncoder
 from oat.model.autoregressive.transformer_cache import AutoregressiveModel
+from oat.blockwise_oat import (
+    BlockwiseGenerateConfig,
+    ParallelTailDecoder,
+    generate_with_blockwise_oat,
+)
 
 if TYPE_CHECKING:
     from oat.perception.robomimic_vision_encoder import DenseRgbEncoder
@@ -41,6 +46,11 @@ class OATPolicy(BasePolicy):
         # policy inference params
         temperature: float = 1.0,
         topk: int = 10,
+        # blockwise OAT (optional parallel tail decoder)
+        use_blockwise_inference: bool = False,
+        blockwise_prefix_len: int = 4,
+        blockwise_refine_iters: int = 1,
+        blockwise_tail_decoder: Optional[ParallelTailDecoder] = None,
     ):
         super().__init__()
         
@@ -113,6 +123,10 @@ class OATPolicy(BasePolicy):
         self.action_dim = action_dim
         self.temperature = temperature
         self.topk = topk
+        self.use_blockwise_inference = use_blockwise_inference
+        self.blockwise_prefix_len = blockwise_prefix_len
+        self.blockwise_refine_iters = blockwise_refine_iters
+        self.blockwise_tail_decoder = blockwise_tail_decoder
 
         self.dense_rgb_encoder: Optional["DenseRgbEncoder"] = None
         self.time_embed: Optional[nn.Embedding] = None
@@ -326,7 +340,21 @@ class OATPolicy(BasePolicy):
         use_k_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         topk: Optional[int] = None,
+        use_blockwise: Optional[bool] = None,
+        blockwise_prefix_len: Optional[int] = None,
+        blockwise_refine_iters: Optional[int] = None,
     ) -> Dict[str, torch.Tensor]:
+        if use_blockwise is None:
+            use_blockwise = self.use_blockwise_inference
+        if use_blockwise:
+            return self.predict_action_blockwise(
+                obs_dict,
+                prefix_len=blockwise_prefix_len,
+                refine_iters=blockwise_refine_iters,
+                temperature=temperature,
+                topk=topk,
+            )
+
         if use_k_tokens is None:
             use_k_tokens = self.max_seq_len
         else:
@@ -364,6 +392,72 @@ class OATPolicy(BasePolicy):
             'action_pred': action_pred
         }
         return result
+
+    @torch.inference_mode()
+    def predict_action_blockwise(
+        self,
+        obs_dict: Dict[str, torch.Tensor],
+        prefix_len: Optional[int] = None,
+        refine_iters: Optional[int] = None,
+        temperature: Optional[float] = None,
+        topk: Optional[int] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """AR prefix (z1..zP) + parallel tail (z_{P+1}..z8) via ParallelTailDecoder."""
+        if self.blockwise_tail_decoder is None:
+            raise RuntimeError(
+                "blockwise_tail_decoder is not attached; train or load ParallelTailDecoder first."
+            )
+        if prefix_len is None:
+            prefix_len = self.blockwise_prefix_len
+        if refine_iters is None:
+            refine_iters = self.blockwise_refine_iters
+        if temperature is None:
+            temperature = self.temperature
+        if topk is None:
+            topk = self.topk
+
+        cond, memory_is_embedded = self._get_conditioning(obs_dict)
+        cfg = BlockwiseGenerateConfig(
+            prefix_len=prefix_len,
+            total_tokens=self.max_seq_len,
+            refine_iters=refine_iters,
+            temperature=temperature,
+            top_k=topk,
+            use_argmax_tail=(temperature <= 0),
+        )
+        action_tokens, bw_info = generate_with_blockwise_oat(
+            self.model,
+            self.blockwise_tail_decoder,
+            cond,
+            self.bos_id,
+            cfg,
+            memory_is_embedded=memory_is_embedded,
+        )
+        action_pred = self.action_tokenizer.detokenize(tokens=action_tokens)
+        action = action_pred[:, :self.n_action_steps]
+        return {
+            "action": action,
+            "action_pred": action_pred,
+            "action_tokens": action_tokens,
+            "blockwise_info": bw_info,
+        }
+
+    def build_blockwise_tail_decoder(
+        self,
+        prefix_len: int = 4,
+        n_layers: int = 2,
+        n_heads: int = 4,
+    ) -> ParallelTailDecoder:
+        """Create a tail decoder sized for this policy (vocab excludes BOS)."""
+        n_tail = self.max_seq_len - prefix_len
+        codebook_size = self.action_tokenizer.quantizer.codebook_size
+        return ParallelTailDecoder(
+            vocab_size=codebook_size + 1,
+            d_model=self.model.n_emb,
+            n_tail=n_tail,
+            n_layers=n_layers,
+            n_heads=n_heads,
+        )
 
 
     def forward(self, batch) -> torch.Tensor:
