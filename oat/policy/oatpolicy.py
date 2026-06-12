@@ -54,6 +54,9 @@ class OATPolicy(BasePolicy):
         use_blockwise_inference: bool = False,
         blockwise_prefix_len: int = 4,
         blockwise_refine_iters: int = 1,
+        blockwise_tail_n_layers: Optional[int] = None,
+        blockwise_tail_n_heads: Optional[int] = None,
+        blockwise_min_param_ratio: float = 0.35,
         blockwise_tail_decoder: Optional[ParallelTailDecoder] = None,
     ):
         super().__init__()
@@ -130,6 +133,9 @@ class OATPolicy(BasePolicy):
         self.use_blockwise_inference = use_blockwise_inference
         self.blockwise_prefix_len = blockwise_prefix_len
         self.blockwise_refine_iters = blockwise_refine_iters
+        self.blockwise_tail_n_layers = blockwise_tail_n_layers
+        self.blockwise_tail_n_heads = blockwise_tail_n_heads
+        self.blockwise_min_param_ratio = blockwise_min_param_ratio
         self.blockwise_tail_decoder = blockwise_tail_decoder
 
         self.dense_rgb_encoder: Optional["DenseRgbEncoder"] = None
@@ -455,19 +461,51 @@ class OATPolicy(BasePolicy):
     def build_blockwise_tail_decoder(
         self,
         prefix_len: int = 4,
-        n_layers: int = 2,
-        n_heads: int = 4,
+        n_layers: Optional[int] = None,
+        n_heads: Optional[int] = None,
+        min_param_ratio: Optional[float] = None,
     ) -> ParallelTailDecoder:
         """Create a tail decoder sized for this policy (vocab excludes BOS)."""
+        if n_layers is None:
+            n_layers = (
+                self.blockwise_tail_n_layers
+                if self.blockwise_tail_n_layers is not None
+                else max(4, self.model.n_layer // 2)
+            )
+        if n_heads is None:
+            n_heads = (
+                self.blockwise_tail_n_heads
+                if self.blockwise_tail_n_heads is not None
+                else self.model.n_head
+            )
+        if min_param_ratio is None:
+            min_param_ratio = self.blockwise_min_param_ratio
+
         n_tail = self.max_seq_len - prefix_len
         codebook_size = self.action_tokenizer.quantizer.codebook_size
-        return ParallelTailDecoder(
+        tail_decoder = ParallelTailDecoder(
             vocab_size=codebook_size + 1,
             d_model=self.model.n_emb,
             n_tail=n_tail,
             n_layers=n_layers,
             n_heads=n_heads,
         )
+        tail_params = sum(p.numel() for p in tail_decoder.parameters())
+        ar_params = sum(p.numel() for p in self.model.parameters())
+        param_ratio = tail_params / max(ar_params, 1)
+        if param_ratio < float(min_param_ratio):
+            raise ValueError(
+                "ParallelTailDecoder is too small compared to AR model: "
+                f"{tail_params:,} vs {ar_params:,} params (ratio={param_ratio:.3f}, "
+                f"min={float(min_param_ratio):.3f}). Increase tail layers/width."
+            )
+        logger.info(
+            "Built ParallelTailDecoder with %s params (AR params=%s, ratio=%.3f).",
+            f"{tail_params:,}",
+            f"{ar_params:,}",
+            param_ratio,
+        )
+        return tail_decoder
 
 
     def forward(self, batch) -> torch.Tensor:

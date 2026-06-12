@@ -50,6 +50,12 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--benchmark-warmup", type=int, default=2)
     parser.add_argument("--benchmark-repeats", type=int, default=8)
+    parser.add_argument(
+        "--min-param-ratio",
+        type=float,
+        default=0.35,
+        help="Minimum acceptable ParallelTailDecoder/AR parameter ratio",
+    )
     parser.add_argument("--report-json", default=None)
     args = parser.parse_args()
 
@@ -77,6 +83,9 @@ def main() -> None:
 
     # 3) Attach decoder and run blockwise.
     policy.blockwise_tail_decoder = _load_tail_decoder(policy, args.tail_checkpoint, args.prefix_len, device)
+    tail_params = sum(p.numel() for p in policy.blockwise_tail_decoder.parameters())
+    ar_params = sum(p.numel() for p in policy.model.parameters())
+    param_ratio = tail_params / max(ar_params, 1)
     with torch.inference_mode():
         out_bw = policy.predict_action(
             obs,
@@ -114,6 +123,7 @@ def main() -> None:
             torch.isfinite(out_bw["action"]).all() and torch.isfinite(out_bw["action_pred"]).all()
         ),
         "speedup_gt_1": bool(bench["speedup"] > 1.0),
+        "tail_param_ratio_ok": bool(param_ratio >= args.min_param_ratio),
     }
 
     report = {
@@ -127,6 +137,12 @@ def main() -> None:
         "fallback_shapes": _shape_info(out_fallback),
         "blockwise_shapes": _shape_info(out_bw),
         "benchmark": bench,
+        "param_counts": {
+            "tail_decoder": tail_params,
+            "ar_model": ar_params,
+            "tail_to_ar_ratio": param_ratio,
+            "min_ratio_required": args.min_param_ratio,
+        },
         "checks": checks,
         "passed": all(checks.values()),
         "sim_eval_commands": {

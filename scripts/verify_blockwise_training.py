@@ -216,7 +216,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--overfit-steps", type=int, default=120)
     parser.add_argument("--overfit-lr", type=float, default=3e-3)
-    parser.add_argument("--refine-iters", type=int, default=2)
+    parser.add_argument("--refine-iters", type=int, default=1)
     parser.add_argument("--policy-checkpoint", default=None, help="Optional real-data one-batch sanity check")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--report-json", default=None)

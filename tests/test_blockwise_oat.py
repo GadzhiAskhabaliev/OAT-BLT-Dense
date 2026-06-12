@@ -62,6 +62,8 @@ def test_generate_with_blockwise_oat_full_sequence():
     assert tokens.shape == (b, total)
     assert info["prefix_tokens"].shape == (b, p)
     assert info["tail_tokens"].shape == (b, total - p)
+    assert info["prefix_decodable_upto"] == p
+    assert info["tail_prefixes_prefix_decodable"] is False
 
 
 def test_prefix_hidden_matches_generate_prefix():

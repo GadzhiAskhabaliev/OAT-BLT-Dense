@@ -42,7 +42,7 @@
 
 | Параметр | Значение по умолчанию |
 |----------|----------------------|
-| Число слоёв | 2 |
+| Число слоёв | auto: ~половина глубины AR (минимум 4) |
 | Число голов | 4 |
 | Self-attention внутри хвоста | **Bidirectional** (non-causal) |
 | Cross-attention | К памяти префикса |
@@ -228,7 +228,7 @@ action = OATTok.detokenize(full_tokens)
 | AR-префикс через исходный декодер | ✅ `generate_prefix` |
 | Префикс не перезаписывается при генерации хвоста | ✅ `cat(prefix, tail)` |
 | Prefix-decodability для `z1..zP` | ✅ по построению; тест на совпадение с AR-префиксом |
-| Parallel tail — lightweight transformer | ✅ 2 слоя, bidirectional + cross-attn |
+| Parallel tail — соизмеримый transformer | ✅ auto-depth + min param ratio guard, bidirectional + cross-attn |
 | Conditioning: hidden + token embeddings | ✅ `_build_prefix_memory`, `_tail_inputs` |
 | `OATTok.detokenize` без изменений | ✅ |
 | Настраиваемые `P`, `refine_iters` | ✅ |
@@ -260,7 +260,7 @@ pip install -e .   # или uv sync
 pytest tests/test_blockwise_oat.py -v
 
 # Синтетическая верификация обучения (без GPU/checkpoint)
-python scripts/verify_blockwise_training.py --overfit-steps 120 --refine-iters 2
+python scripts/verify_blockwise_training.py --overfit-steps 120 --refine-iters 1
 
 # С реальным checkpoint (пример)
 python scripts/verify_blockwise_dataset.py \

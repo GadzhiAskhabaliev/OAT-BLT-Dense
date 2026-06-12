@@ -9,7 +9,7 @@ pass via `ParallelTailDecoder`.
 | Component | Role |
 |-----------|------|
 | `AutoregressiveModel.generate_prefix` | AR steps for z1..zP; returns `prefix_hidden` |
-| `ParallelTailDecoder` | 2-layer transformer, bidirectional tail self-attn + cross-attn to prefix |
+| `ParallelTailDecoder` | Mid-size transformer (default ~half AR depth, min ratio guard), bidirectional tail self-attn + cross-attn to prefix |
 | `OATTok.detokenize` | Unchanged; full z1..z8 → action chunk |
 
 ### Trade-off (bidirectional tail)
@@ -50,11 +50,14 @@ out = policy.predict_action(obs_dict)  # or use_blockwise=True
 python scripts/train_blockwise_tail.py \
   --policy-checkpoint path/to/policy.ckpt \
   --prefix-len 4 \
+  --refine-iters 1 \
   --epochs 10 \
   --output output/blockwise_tail_decoder.pt
 ```
 
 Main OAT transformer is frozen; loss is CE on tail positions only.
+By default, `build_blockwise_tail_decoder` enforces `tail_params / ar_params >= 0.35`
+to avoid undersized tail models.
 
 ## Parameters
 
@@ -85,7 +88,7 @@ python scripts/verify_blockwise_dataset.py \
 python scripts/verify_blockwise_training.py \
   --prefix-len 4 \
   --n-tail 4 \
-  --refine-iters 2 \
+  --refine-iters 1 \
   --overfit-steps 120
 
 # 3) Policy integration + AR vs Blockwise speed benchmark

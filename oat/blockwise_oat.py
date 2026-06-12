@@ -296,6 +296,10 @@ def generate_with_blockwise_oat(
         "prefix_len": p,
         "tail_len": n_tail,
         "refine_iters_used": refine_iters,
+        # Prefix-decodability guarantee for bidirectional tail:
+        # only AR-generated z1..zP is strictly prefix-decodable.
+        "prefix_decodable_upto": p,
+        "tail_prefixes_prefix_decodable": False,
     }
     return full_tokens, info
 

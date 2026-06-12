@@ -35,6 +35,14 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--tail-layers", type=int, default=None, help="Override tail decoder layer count")
+    parser.add_argument("--tail-heads", type=int, default=None, help="Override tail decoder attention heads")
+    parser.add_argument(
+        "--min-param-ratio",
+        type=float,
+        default=0.35,
+        help="Minimum tail/AR parameter ratio to avoid undersized tail decoder",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--output", default="output/blockwise_tail_decoder.pt")
     args = parser.parse_args()
@@ -49,7 +57,18 @@ def main():
     for p in policy.parameters():
         p.requires_grad_(False)
 
-    tail_decoder = policy.build_blockwise_tail_decoder(prefix_len=args.prefix_len).to(device)
+    tail_decoder = policy.build_blockwise_tail_decoder(
+        prefix_len=args.prefix_len,
+        n_layers=args.tail_layers,
+        n_heads=args.tail_heads,
+        min_param_ratio=args.min_param_ratio,
+    ).to(device)
+    tail_params = sum(p.numel() for p in tail_decoder.parameters())
+    ar_params = sum(p.numel() for p in policy.model.parameters())
+    print(
+        "tail/AR parameter ratio: "
+        f"{tail_params:,}/{ar_params:,} = {tail_params / max(ar_params, 1):.3f}"
+    )
     optimizer = torch.optim.AdamW(tail_decoder.parameters(), lr=args.lr)
 
     # Dataset from training config (Hydra-instantiated zarr loader).
@@ -108,6 +127,11 @@ def main():
     torch.save({
         "prefix_len": args.prefix_len,
         "refine_iters": args.refine_iters,
+        "tail_layers": len(tail_decoder.blocks),
+        "tail_heads": tail_decoder.blocks[0].self_attn.n_head if len(tail_decoder.blocks) > 0 else None,
+        "tail_params": tail_params,
+        "ar_params": ar_params,
+        "tail_param_ratio": tail_params / max(ar_params, 1),
         "state_dict": tail_decoder.state_dict(),
         "policy_checkpoint": str(args.policy_checkpoint),
     }, out)
