@@ -1,7 +1,7 @@
 # Blockwise-OAT: описание изменений для научного ревью
 
 **Ветка:** `Blockwise-OAT`  
-**Базовая линия:** `main` (BLT-OAT-Dense — dense visual memory + стандартный AR-декодер OAT)  
+**Базовая линия:** `BLT-OAT-dense` (dense visual memory + стандартный AR-декодер OAT)  
 **Дата документа:** 2026-06-12  
 **Статус:** архитектура реализована и покрыта unit/verification-тестами; обучение tail-декодера на полном LIBERO и sim-eval Blockwise vs AR — **ещё не завершены**.
 
@@ -201,7 +201,7 @@ action = OATTok.detokenize(full_tokens)
 | `scripts/verify_blockwise_policy_integration.py` | Интеграция + speedup |
 | `tests/test_blockwise_oat.py` | Unit-тесты |
 
-### Изменённые файлы (относительно `main`)
+### Изменённые файлы (относительно `BLT-OAT-dense`)
 
 | Файл | Изменение |
 |------|-----------|
@@ -211,7 +211,7 @@ action = OATTok.detokenize(full_tokens)
 
 ### Что **не** входит в эту ветку
 
-Ветка `main` содержит отдельную линию работы **BLT-OAT-Dense**:
+Ветка `BLT-OAT-dense` содержит отдельную линию работы **dense OAT**:
 
 - результаты обучения dense policy (ladder 300/500/700/950);
 - Phase B confirm eval;
@@ -246,7 +246,7 @@ action = OATTok.detokenize(full_tokens)
 2. **Запустить verification-kit** (шаги 1→2→3) на кластере с реальным checkpoint и smoke/full dataset.
 3. **Sim-eval LIBERO-10:** сравнить SR Blockwise vs full AR (`eval_policy_sim.py --use-blockwise`); критерий приемлемости: падение SR ≤ 2–3% от AR baseline при `speedup > 1`.
 4. При необходимости: увеличить `P`, `refine_iters`, или число эпох обучения tail.
-5. После валидации — PR `Blockwise-OAT` → `main` (точечный merge, без dense-артефактов).
+5. После валидации — PR `Blockwise-OAT` → `BLT-OAT-dense` (точечный merge, без dense-артефактов).
 
 ---
 
