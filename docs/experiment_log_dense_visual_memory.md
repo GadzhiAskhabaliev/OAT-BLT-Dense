@@ -233,6 +233,11 @@ for k in ['mean_success_rate','val_loss','train_loss']:
 
 ## 10. Changelog
 
+### 2026-06-13 — Phase B confirm ep-0950 завершён
+- Cluster tmux `oat_confirm_ep0950`: 50 ep/task × 3 seeds, `ep-0950_sr-0.527.ckpt`.
+- **Mean SR: 50.60% ± 0.76%** (per-seed: 52.0% / 49.4% / 50.4%).
+- Артефакты: `docs/results/phase_b_confirm_ep0950/`, dashboard `phase_b_confirm_ep-0950_dashboard.png`.
+
 ### 2026-06-12 — Документация и зеркала артефактов
 - README: полный research timeline, HF-ссылки, визуализации из `docs/results/`.
 - Resume train/eval: cluster-скрипты (`run_resume_train_sim_eval.sh`, lazy LiberoRunner, `mp_context=spawn`).

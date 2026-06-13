@@ -69,6 +69,7 @@ Implementation: [`oat/policy/oatpolicy.py`](oat/policy/oatpolicy.py), [`oat/perc
 | 2026-06-01 | Phase A ladder SR (30 ep/task) | Screen ep-0300 / 0500 / 0700 |
 | 2026-06-01 | Phase B confirm (50 ep/task × 3 seeds) | **ep-0700: 47.60% ± 1.75%** → resume decision |
 | 2026-06-08 | Resume ep-0700 → 1000, in-loop eval every 50 ep | In-loop best **52.67% @ ep-950** (300 ep, single seed block) |
+| 2026-06-13 | Phase B confirm ep-0950 (50 ep/task × 3 seeds) | **ep-0950: 50.60% ± 0.76%** (cluster confirm eval done) |
 
 Full chronological notes: [`docs/experiment_log_dense_visual_memory.md`](docs/experiment_log_dense_visual_memory.md).
 
@@ -99,15 +100,21 @@ Full chronological notes: [`docs/experiment_log_dense_visual_memory.md`](docs/ex
 
 ### Phase B — confirm eval (50 ep/task, 3 seed blocks)
 
-| Checkpoint | Mean SR | 95% CI (across seeds) |
-|------------|--------:|----------------------|
-| ep-0700 | **47.60%** | ± 1.75% |
+| Checkpoint | Mean SR | 95% CI (across seeds) | Artifacts |
+|------------|--------:|----------------------|-----------|
+| ep-0700 | **47.60%** | ± 1.75% | [dashboard](docs/results/phase_b_confirm/phase_b_confirm_ep-0700_dashboard.png) · [eval_log](docs/results/phase_b_confirm/eval_log.json) |
+| **ep-0950** | **50.60%** | ± 0.76% | [dashboard](docs/results/phase_b_confirm/phase_b_confirm_ep-0950_dashboard.png) · [eval_log](docs/results/phase_b_confirm_ep0950/eval_log.json) · [summary](docs/results/phase_b_confirm/eval_summary_ep-0950.md) |
+
+**Protocol:** `scripts/cluster/run_confirm_ep0950_eval.sh` — seeds 1000 / 1500 / 2000 (`seed_stride=500`), `n_parallel_envs=4`, checkpoint `ep-0950_sr-0.527.ckpt`. Completed **2026-06-13** on cluster (`oat_confirm_ep0950`).
+
+Per-seed SR (ep-0950): **52.0%** · **49.4%** · **50.4%**.
 
 <p align="center">
-  <img src="docs/results/phase_b_confirm/phase_b_confirm_ep-0700_dashboard.png" width="90%" alt="Phase B confirm ep-0700" />
+  <img src="docs/results/phase_b_confirm/phase_b_confirm_ep-0700_dashboard.png" width="48%" alt="Phase B confirm ep-0700" />
+  <img src="docs/results/phase_b_confirm/phase_b_confirm_ep-0950_dashboard.png" width="48%" alt="Phase B confirm ep-0950" />
 </p>
 
-Artifacts: [`docs/results/phase_b_confirm/`](docs/results/phase_b_confirm/) · [HF `sim_eval_phase_b/`](https://huggingface.co/hackhackhack66666/OAT-BLT-Libero-700/tree/main/sim_eval_phase_b)
+Artifacts: [`docs/results/phase_b_confirm/`](docs/results/phase_b_confirm/) · [`docs/results/phase_b_confirm_ep0950/`](docs/results/phase_b_confirm_ep0950/) · [HF `sim_eval_phase_b/`](https://huggingface.co/hackhackhack66666/OAT-BLT-Libero-700/tree/main/sim_eval_phase_b) (ep-0700; ep-0950 pending upload)
 
 ### Resume training (ep-0700 → 1000, in-loop SR every 50 epochs)
 
@@ -241,7 +248,7 @@ docs/
 
 **Протокол:** короткие smoke-абляции → long-run N500 → лестница чекпоинтов 300/500/700 → confirm eval → resume с периодическим sim-SR. Метрика отбора — `mean_success_rate`, не `val_loss`.
 
-**Итог лестницы:** ep-0700 лучший на screen (51.67%) и confirm (47.60% ± 1.75%); после resume in-loop пик 52.67% (ep-950). Сравнение с 56.3% OAT-8 — с оговоркой по протоколу eval.
+**Итог лестницы:** ep-0700 лучший на screen (51.67%) и confirm (47.60% ± 1.75%); после resume in-loop пик 52.67% (ep-950). **Phase B confirm ep-0950: 50.60% ± 0.76%** (+3 pp vs ep-0700 confirm). Сравнение с 56.3% OAT-8 — с оговоркой по протоколу eval.
 
 ---
 
