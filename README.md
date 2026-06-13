@@ -114,7 +114,7 @@ Per-seed SR (ep-0950): **52.0%** · **49.4%** · **50.4%**.
   <img src="docs/results/phase_b_confirm/phase_b_confirm_ep-0950_dashboard.png" width="48%" alt="Phase B confirm ep-0950" />
 </p>
 
-Artifacts: [`docs/results/phase_b_confirm/`](docs/results/phase_b_confirm/) · [`docs/results/phase_b_confirm_ep0950/`](docs/results/phase_b_confirm_ep0950/) · [HF `sim_eval_phase_b/`](https://huggingface.co/hackhackhack66666/OAT-BLT-Libero-700/tree/main/sim_eval_phase_b) (ep-0700; ep-0950 pending upload)
+Artifacts: [`docs/results/phase_b_confirm/`](docs/results/phase_b_confirm/) · [`docs/results/phase_b_confirm_ep0950/`](docs/results/phase_b_confirm_ep0950/) · [HF ep-0700 `sim_eval_phase_b/`](https://huggingface.co/hackhackhack66666/OAT-BLT-Libero-700/tree/main/sim_eval_phase_b) · [HF ep-0950](https://huggingface.co/hackhackhack66666/oat-dense-blt-950/tree/main/sim_eval_phase_b)
 
 ### Resume training (ep-0700 → 1000, in-loop SR every 50 epochs)
 
@@ -150,6 +150,7 @@ Regenerate: `python scripts/make_checkpoint_dashboards.py --run-dir output/long/
 | 300 | [OAT-BLT-LIBERO-300](https://huggingface.co/hackhackhack66666/OAT-BLT-LIBERO-300) | `ep-0300.ckpt`, training dashboard, Phase A `sim_eval/` |
 | 500 | [OAT-BLT-LIBERO-500](https://huggingface.co/hackhackhack66666/OAT-BLT-LIBERO-500) | `ep-0500.ckpt`, training dashboard, Phase A `sim_eval/` |
 | 700 | [OAT-BLT-Libero-700](https://huggingface.co/hackhackhack66666/OAT-BLT-Libero-700) | `ep-0700.ckpt`, training logs, overfit watcher, Phase A + **Phase B** eval |
+| **950** | [**oat-dense-blt-950**](https://huggingface.co/hackhackhack66666/oat-dense-blt-950) | `ep-0950.ckpt`, training logs, Phase A + **Phase B** confirm eval |
 
 Download:
 
